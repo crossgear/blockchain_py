@@ -1,9 +1,11 @@
 import hashlib
 import json
+import requests
 from textwrap import dedent
 from time import time
 from uuid import uuid4
 from flask import Flask, jsonify, request
+from urllib.parse import urlparse
 
 
 class Blockchain(object):
@@ -13,6 +15,7 @@ class Blockchain(object):
 
         # Crea el bloque de genesis
         self.new_block( previous_hash=1, proof=100 )
+        self.nodes = set()
     
     #crea un nuevo bloque y lo adhiere a la cadena
     def new_block(self, proof, previous_hash='none'):
@@ -99,6 +102,74 @@ class Blockchain(object):
         guess_hash = hashlib.sha256(guess).hexdigest()
         return guess_hash[:4] == "0000"
 
+    def register_node(self, address):
+        """
+        Agregue un nuevo nodo a la lista de nodos
+        :param address: <str> Dirección del nodo. P.ej. 'http://192.168.0.5:5000'
+        :return: ninguna
+        """
+        parsed_url = urlparse(address)
+        self.nodes.add(parsed_url.netloc)
+
+    def valid_chain(self, chain):
+        """
+        Determinar si una cadena de bloques dada es válida
+        :param chain: <list> A blockchain
+        :return: <bool> True si es válido, False si no
+        """
+
+        last_block = chain[0]
+        current_index = 1
+
+        while (current_index < len(chain)):
+            block = chain[current_index]
+            print(f'{last_block}')
+            print(f'{block}')
+            print("\n-----------\n")
+            # Verificar que el hash del bloque sea correcto
+            if block['previous_hash'] != self.hash(last_block):
+                return False
+            # Verifique que la Prueba de trabajo sea correcta
+            if not self.valid_proof(last_block['proof'], block['proof']):
+                return False
+            last_block = block
+            current_index += 1
+
+        return True
+    def resolve_conflicts(self):
+        """
+        Este es nuestro algoritmo de consenso, resuelve conflictos
+        reemplazando nuestra cadena con la más larga en la red.
+        :return: <bool> Verdadero si nuestra cadena fue reemplazada, False si no
+        """
+        neighbours = self.nodes
+        new_chain = None
+
+        # Solo estamos buscando cadenas más largas que las nuestras
+        max_length = len(self.chain)
+
+        # Coge y verifica las cadenas de todos los nodos de nuestra red
+        for node in neighbours:
+            response = requests.get(f'http://{node}/chain')
+
+            if response.status_code == 200:
+                length = response.json()['length']
+                chain = response.json()['chain']
+
+                # Check if the length is longer and the chain is valid
+                if length > max_length and self.valid_chain(chain):
+                    max_length = length
+                    new_chain = chain
+       
+        # Reemplazar nuestra cadena si descubrimos una nueva cadena válida más larga que la nuestra
+        if new_chain:
+            self.chain = new_chain
+            return True
+
+        return False
+
+
+
 # Instantiate our Node
 app = Flask(__name__)
 
@@ -163,6 +234,39 @@ def full_chain():
 if __name__ == '__main__':
     app.run(host='0.0.0.0', port=5000)
 
+@app.route('/nodes/register', methods=['POST'])
+def register_nodes():
+    values = request.get_json()
+
+    nodes = values.get('nodes')
+    if nodes is None:
+        return "Error: Please supply a valid list of nodes", 400
+
+    for node in nodes:
+        blockchain.register_node(node)
+
+    response = {
+        'message': 'New nodes have been added',
+        'total_nodes': list(blockchain.nodes),
+    }
+    return jsonify(response), 201
+
+@app.route('/nodes/resolve', methods=['GET'])
+def consensus():
+    replaced = blockchain.resolve_conflicts()
+
+    if replaced:
+        response = {
+            'message': 'Our chain was replaced',
+            'new_chain': blockchain.chain
+        }
+    else:
+        response = {
+            'message': 'Our chain is authoritative',
+            'chain': blockchain.chain
+        }
+
+    return jsonify(response), 200
 
 
 
