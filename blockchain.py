@@ -28,7 +28,7 @@ class Blockchain(object):
             'timestamp' : time(),
             'transactions' : self.current_transactions,
             'proof' : proof,
-            'previous_hash' : previous_hash or self.hash(self.chain(-1)),
+            'previous_hash' : previous_hash or self.hash(self.chain[-1]),
 
         }
 
@@ -41,7 +41,7 @@ class Blockchain(object):
 
 
     # Agrega una nueva transacción a la lista de transacciones
-    def new_transaction(self):
+    def new_transaction(self, sender, recipient, amount):
         """
         Crea una nueva transacción para ir al siguiente bloque minado
         :param sender: <str> Dirección del remitente
@@ -83,11 +83,11 @@ class Blockchain(object):
         """
         proof = 0
         
-        while self.valid_proof(last_proof, proof) is False:
+        while self.valid_proof is False:
             proof += 1
         return proof
 
-    @staticmethod
+    #@staticmethod
     def valid_proof(self, last_proof, proof):
         """
         Valida la prueba: ¿El hash (last_proof, proof) contiene 4 ceros a la izquierda?
